@@ -8,6 +8,11 @@ from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import re
 
+# todo 开始发布的日期
+start_date = "20250814"
+key_word_str = "精卫 可爱过敏原 你越界了 脱缰 营业悖论 爱之欲其生 这本漫画真的很乘"
+key_word = key_word_str.split(" ")
+
 
 def save_to_excel(data_list, filename):
     """保存数据到Excel文件"""
@@ -22,6 +27,7 @@ def save_to_excel(data_list, filename):
         data_list,
         columns=[
             "小红书名称",
+            "主页链接",
             "粉丝量",
             "标题",
             "keywords",
@@ -30,6 +36,7 @@ def save_to_excel(data_list, filename):
             "点赞数",
             "收藏数",
             "评论数",
+            "是否包含关键词",
         ],
     )
     df.to_excel(filename, index=False)  # Avoid saving index in Excel
@@ -140,7 +147,9 @@ def screenshot_note_with_cookies(users_url, start_time):
                 soup = BeautifulSoup(page_source, "html.parser")
                 if soup.find("meta", attrs={"name": "og:title"}) is None:
                     print("无法访问", "", "", "", "", url, 0, 0, 0)
-                    all_user_data.append(("无法访问", "", "", "", "", url, 0, 0, 0))
+                    all_user_data.append(
+                        ("无法访问", user_url, "", "", "", "", url, 0, 0, 0, False)
+                    )
                     continue
                 title = soup.find("meta", attrs={"name": "og:title"})["content"]
                 keywords = soup.find("meta", attrs={"name": "keywords"})["content"]
@@ -167,6 +176,8 @@ def screenshot_note_with_cookies(users_url, start_time):
                     "note"
                 ]["time"]
 
+                is_description = contains_any_keyword(description, key_word)
+
                 count += 1
                 if count >= 5 or note_crete_time < start_time:
                     if count == 1:
@@ -174,6 +185,7 @@ def screenshot_note_with_cookies(users_url, start_time):
                     break
                 print(
                     nickname,
+                    user_url,
                     fan_count,
                     title,
                     keywords,
@@ -182,10 +194,12 @@ def screenshot_note_with_cookies(users_url, start_time):
                     note_like,
                     note_collect,
                     note_comment,
+                    is_description,
                 )
                 all_user_data.append(
                     (
                         nickname,
+                        user_url,
                         fan_count,
                         title,
                         keywords,
@@ -194,6 +208,7 @@ def screenshot_note_with_cookies(users_url, start_time):
                         note_like,
                         note_collect,
                         note_comment,
+                        is_description,
                     )
                 )
         save_to_excel(all_user_data, "xiaohongshu_notes")
@@ -231,6 +246,11 @@ def yyyymmdd_to_milliseconds(date_string):
         return None
 
 
+def contains_any_keyword(text: str, keywords: list[str]) -> bool:
+    """是否包含任一指定词（子串匹配）。"""
+    return any(k in text for k in keywords)
+
+
 def extract_urls(text):
     """从文本中提取所有URL"""
     pattern = r"https?://[^\s]+"
@@ -239,8 +259,6 @@ def extract_urls(text):
 
 
 if __name__ == "__main__":
-    # todo 开始发布的日期
-    start_date = "20250814"
     start_time = yyyymmdd_to_milliseconds(start_date)
     # 从文件中读取链接
     file_name = "user_urls.txt"  # 你的URL文件路径
