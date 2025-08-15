@@ -83,9 +83,9 @@ def screenshot_note_with_cookies(note_url):
             driver.get(url)
             # time.sleep(2)  # 等待页面加载完成
             # 截图保存
-            screenshot_path = "./screenshots/{}_note_screenshot.png".format(i)
-            driver.save_screenshot(screenshot_path)
-            print(f"截图已保存到: {screenshot_path}")
+            # screenshot_path = "./screenshots/{}_note_screenshot.png".format(i)
+            # driver.save_screenshot(screenshot_path)
+            # print(f"截图已保存到: {screenshot_path}")
             page_source = driver.page_source
 
             # 使用BeautifulSoup解析
