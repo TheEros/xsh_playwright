@@ -139,7 +139,8 @@ def screenshot_note_with_cookies(users_url, start_time):
                 if note["id"] in top_note:
                     continue
                 note_url = "https://www.xiaohongshu.com/explore/{}?xsec_token={}"
-                driver.get(note_url.format(note["id"], note["xsecToken"]))
+                rs_note_url = note_url.format(note["id"], note["xsecToken"])
+                driver.get(rs_note_url)
                 # time.sleep(2)  # 等待页面加载完成
                 page_source = driver.page_source
 
@@ -190,7 +191,7 @@ def screenshot_note_with_cookies(users_url, start_time):
                     title,
                     keywords,
                     description,
-                    url,
+                    rs_note_url,
                     note_like,
                     note_collect,
                     note_comment,
@@ -204,7 +205,7 @@ def screenshot_note_with_cookies(users_url, start_time):
                         title,
                         keywords,
                         description,
-                        url,
+                        rs_note_url,
                         note_like,
                         note_collect,
                         note_comment,
