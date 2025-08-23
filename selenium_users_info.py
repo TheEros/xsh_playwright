@@ -9,8 +9,8 @@ from bs4 import BeautifulSoup
 import re
 
 # todo 开始发布的日期
-start_date = "20250814"
-key_word_str = "精卫 可爱过敏原 你越界了 脱缰 营业悖论 爱之欲其生 这本漫画真的很乘"
+start_date = "20250822"
+key_word_str = "爱与偏执机器人 好一个乖乖女 赫尔墨斯情人 伪装名流 诱她"
 key_word = key_word_str.split(" ")
 
 
