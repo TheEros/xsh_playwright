@@ -8,10 +8,12 @@ from selenium.common.exceptions import WebDriverException, TimeoutException
 from bs4 import BeautifulSoup
 import re
 import logging
+import json
 
 # --- 配置区 ---
 # 在这里修改所有设置，无需改动下面的代码
 CONFIG = {
+    "enable_user_info": False,  # True: 开启主页信息爬取, False: 关闭
     "enable_screenshots": False,  # True: 开启截图, False: 关闭截图
     "urls_filename": "urls.txt",  # 存储URL列表的文件
     "cookies_filename": "cookies.txt",  # 存储Cookie的文件
@@ -34,10 +36,10 @@ def save_to_excel(data_list, filename_prefix):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{filename_prefix}_{timestamp}.xlsx"
 
+    # 使用字典列表创建DataFrame，更灵活
+    df = pd.DataFrame(data_list)
+
     try:
-        df = pd.DataFrame(
-            data_list, columns=["标题", "链接", "点赞数", "收藏数", "评论数"]
-        )
         df.to_excel(filename, index=False)
         logging.info(f"成功保存到: {os.path.abspath(filename)}")
         logging.info(f"总记录数: {len(data_list)}")
@@ -79,13 +81,12 @@ def setup_driver():
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    # 避免在headless模式下出现不必要的日志
     chrome_options.add_argument("--log-level=3")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
 
     try:
         driver = webdriver.Chrome(options=chrome_options)
-        driver.set_window_size(1280, 800)  # 设置一个合适的窗口大小
+        driver.set_window_size(1280, 800)
         return driver
     except WebDriverException as e:
         logging.error(
@@ -99,23 +100,15 @@ def load_cookies(driver, cookies_file):
     try:
         with open(cookies_file, "r") as file:
             cookie_string = file.read().strip()
-
-        # 访问主页以设置正确的Cookie域
         driver.get("https://www.xiaohongshu.com")
         time.sleep(2)
-
-        # 清理旧Cookie，以防万一
         driver.delete_all_cookies()
-
-        # 解析并添加Cookie
-        # 格式通常是 "key1=value1; key2=value2"
         for cookie_pair in cookie_string.split(";"):
             if "=" in cookie_pair:
                 name, value = cookie_pair.strip().split("=", 1)
                 driver.add_cookie(
                     {"name": name, "value": value, "domain": ".xiaohongshu.com"}
                 )
-
         logging.info("Cookies加载成功。")
         return True
     except FileNotFoundError:
@@ -130,9 +123,10 @@ def load_cookies(driver, cookies_file):
 
 def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs):
     """
-    处理小红书笔记URL列表，抓取数据并根据配置进行截图。
+    处理小红书笔记URL列表，抓取数据并根据配置进行截图和用户信息抓取。
     """
     enable_screenshots = kwargs.get("enable_screenshots", False)
+    enable_user_info = kwargs.get("enable_user_info", False)
     screenshots_dir = kwargs.get("screenshots_dir", "./screenshots")
 
     driver = setup_driver()
@@ -142,26 +136,33 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
     all_notes_data = []
 
     try:
-        # 加载Cookies并刷新页面
         if load_cookies(driver, cookies_filename):
             driver.refresh()
             time.sleep(2)
 
-        # 动态配置截图目录
         if enable_screenshots:
             os.makedirs(screenshots_dir, exist_ok=True)
             logging.info(f"截图功能已开启，将保存至 '{screenshots_dir}' 目录。")
-        else:
-            logging.info("截图功能已关闭。")
+        if enable_user_info:
+            logging.info("主页信息爬取功能已开启。")
 
         for i, url in enumerate(note_urls):
             logging.info(f"正在处理第 {i + 1}/{len(note_urls)} 个链接: {url}")
+
+            # 初始化笔记和用户信息字段
+            note_info = {
+                "标题": "N/A",
+                "链接": url,
+                "点赞数": 0,
+                "收藏数": 0,
+                "评论数": 0,
+            }
+            user_info = {"用户名": "N/A", "用户ID": "N/A", "粉丝量": "N/A"}
+
             try:
                 driver.get(url)
-                # 等待页面内容渲染，可以根据网速适当调整
-                # time.sleep(3)
+                time.sleep(3)  # 等待页面渲染
 
-                # --- 截图逻辑 ---
                 if enable_screenshots:
                     screenshot_path = os.path.join(
                         screenshots_dir,
@@ -170,7 +171,6 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
                     driver.save_screenshot(screenshot_path)
                     logging.info(f"截图已保存到: {screenshot_path}")
 
-                # --- 数据解析逻辑 ---
                 page_source = driver.page_source
                 soup = BeautifulSoup(page_source, "html.parser")
 
@@ -178,46 +178,98 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
                     logging.warning(
                         f"无法访问或解析笔记: {url}。可能需要验证或笔记已删除。"
                     )
-                    all_notes_data.append(("无法访问或解析", url, 0, 0, 0))
+                    note_info["标题"] = "无法访问或解析"
+                    all_notes_data.append({**note_info, **user_info})
                     continue
-                # 使用更安全的方式获取meta标签内容
+
+                # 1. 抓取笔记基础信息
                 title_tag = soup.find("meta", attrs={"name": "og:title"})
-                title = title_tag.get("content", "无标题")
-                note_like = soup.find("meta", attrs={"name": "og:xhs:note_like"}).get(
-                    "content", 0
-                )
-                note_collect = soup.find(
+                note_info["标题"] = title_tag.get("content", "无标题")
+                note_info["点赞数"] = soup.find(
+                    "meta", attrs={"name": "og:xhs:note_like"}
+                ).get("content", 0)
+                note_info["收藏数"] = soup.find(
                     "meta", attrs={"name": "og:xhs:note_collect"}
                 ).get("content", 0)
-                note_comment = soup.find(
+                note_info["评论数"] = soup.find(
                     "meta", attrs={"name": "og:xhs:note_comment"}
                 ).get("content", 0)
-
                 logging.info(
-                    f"标题: {title}, 点赞: {note_like}, 收藏: {note_collect}, 评论: {note_comment}"
+                    f"标题: {note_info['标题']}, 点赞: {note_info['点赞数']}, 收藏: {note_info['收藏数']}, 评论: {note_info['评论数']}"
                 )
-                all_notes_data.append(
-                    (title, url, note_like, note_collect, note_comment)
-                )
+
+                # 2. 如果开启，抓取用户信息
+                if enable_user_info:
+                    # 在笔记页面找到作者链接
+                    author_link_tag = soup.find("a", attrs={"class": "name"})
+                    if author_link_tag and author_link_tag.has_attr("href"):
+                        profile_url = (
+                            "https://www.xiaohongshu.com" + author_link_tag["href"]
+                        )
+                        logging.info(f"找到作者主页链接: {profile_url}")
+                        user_info["profile_url"] = profile_url
+                        match = re.search(r"user/profile/([a-z0-9]{24})", profile_url)
+                        if match:
+                            user_id = match.group(1)
+                            user_info["用户唯一id"] = user_id
+                        try:
+                            # 访问作者主页
+                            driver.get(profile_url)
+                            time.sleep(3)
+                            profile_soup = BeautifulSoup(
+                                driver.page_source, "html.parser"
+                            )
+                            script = profile_soup.body.find_all("script")[1].text
+                            script = (
+                                str(script)
+                                .lstrip("window.__INITIAL_STATE__=")
+                                .replace("undefined", "null")
+                            )
+                            data = json.loads(script)
+                            user_page_data = data["user"]["userPageData"]
+                            basic_info = user_page_data["basicInfo"]
+                            interactions = user_page_data["interactions"]
+                            print(basic_info, interactions)
+
+                            # 提取用户信息
+
+                            user_info["用户名"] = basic_info["nickname"]
+                            user_info["用户ID"] = basic_info["redId"]
+                            for item in interactions:
+                                if item["name"] == "粉丝":
+                                    user_info["粉丝量"] = item["count"]
+                            logging.info(
+                                f"用户名: {user_info['用户名']}, 用户ID: {user_info['用户ID']}, 粉丝量: {user_info['粉丝量']}"
+                            )
+
+                        except Exception as e:
+                            logging.error(
+                                f"抓取主页信息时发生错误: {profile_url}, 错误: {e}"
+                            )
+                    else:
+                        logging.warning(f"在笔记页面 {url} 未找到作者主页链接。")
 
             except TimeoutException:
                 logging.error(f"访问链接超时: {url}")
-                all_notes_data.append(("访问超时", url, 0, 0, 0))
+                note_info["标题"] = "访问超时"
             except Exception as e:
                 logging.error(f"处理链接 {url} 时发生未知错误: {e}")
-                all_notes_data.append(("处理失败", url, 0, 0, 0))
+                note_info["标题"] = "处理失败"
+
+            # 合并笔记和用户信息，并添加到总列表
+            all_notes_data.append({**note_info, **user_info})
 
         save_to_excel(all_notes_data, output_filename_prefix)
 
     finally:
         logging.info("所有任务完成，正在关闭浏览器...")
-        driver.quit()
+        if driver:
+            driver.quit()
 
 
 def main():
     """主函数，协调整个流程。"""
     urls_from_file = read_urls_from_file(CONFIG["urls_filename"])
-
     if not urls_from_file:
         logging.warning("没有读取到有效的URL，程序终止。")
     else:
@@ -226,6 +278,7 @@ def main():
             CONFIG["cookies_filename"],
             CONFIG["output_filename_prefix"],
             enable_screenshots=CONFIG["enable_screenshots"],
+            enable_user_info=CONFIG["enable_user_info"],  # 传入新配置
             screenshots_dir=CONFIG["screenshots_dir"],
         )
 
