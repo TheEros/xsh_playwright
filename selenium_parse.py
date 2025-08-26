@@ -13,7 +13,7 @@ import json
 # --- 配置区 ---
 # 在这里修改所有设置，无需改动下面的代码
 CONFIG = {
-    "enable_user_info": False,  # True: 开启主页信息爬取, False: 关闭
+    "enable_user_info": True,  # True: 开启主页信息爬取, False: 关闭
     "enable_screenshots": False,  # True: 开启截图, False: 关闭截图
     "urls_filename": "urls.txt",  # 存储URL列表的文件
     "cookies_filename": "cookies.txt",  # 存储Cookie的文件
@@ -229,10 +229,7 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
                             user_page_data = data["user"]["userPageData"]
                             basic_info = user_page_data["basicInfo"]
                             interactions = user_page_data["interactions"]
-                            print(basic_info, interactions)
-
                             # 提取用户信息
-
                             user_info["用户名"] = basic_info["nickname"]
                             user_info["用户ID"] = basic_info["redId"]
                             for item in interactions:
