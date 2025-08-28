@@ -1,16 +1,15 @@
 import argparse
-import sqlparse
 import sys
 from pathlib import Path
+
 
 import duckdb
 import polars as pl
 
-# ====== CONFIG ======
-
+# ====== CONFIG（阈值从高到低；顺序不对会自动排序）======
 CONFIG = {
     "REWARD_RULES": {
-        # 机构内部价格（示例：默认与外部一致，可自行调整）
+        # 机构内部价格（示例：请按实际调整）
         "base_reward_tiers_internal": [
             {"threshold": 10, "reward": 500},
             {"threshold": 5, "reward": 200},
@@ -19,7 +18,7 @@ CONFIG = {
             {"threshold": 0.1, "reward": 30},
             {"threshold": 0, "reward": 20},
         ],
-        # 外部价格（示例）
+        # 外部价格（示例：请按实际调整）
         "base_reward_tiers_external": [
             {"threshold": 10, "reward": 500},
             {"threshold": 5, "reward": 200},
@@ -28,6 +27,7 @@ CONFIG = {
             {"threshold": 0.1, "reward": 30},
             {"threshold": 0, "reward": 20},
         ],
+        # 爆款奖励（示例）
         "amount_of_reward_tiers": [
             {"threshold": 10000, "reward": 300},
             {"threshold": 1000, "reward": 50},
@@ -74,8 +74,7 @@ FINAL_OUTPUT_COLUMNS_MAP = {
     "cloud_id_number": "云账户身份证号",
 }
 
-
-# 兼容公司表常见列名（任选其一即可）
+# 公司表常见列名（任选其一）
 COMPANY_NICK_CANDIDATES = ["nickname", "小红书账号", "小红书名称", "账号昵称", "昵称"]
 COMPANY_ISORG_CANDIDATES = [
     "is_institution",
@@ -86,12 +85,14 @@ COMPANY_ISORG_CANDIDATES = [
 ]
 
 
-# ====== 小工具 ======
+# ====== 基础工具 ======
 def _read_csv_or_exit(path: str) -> pl.DataFrame:
     p = Path(path)
     if not p.exists():
         print(f"错误: 文件未找到 '{path}'")
+
         sys.exit(1)
+
     for enc in ("utf8", "utf8-lossy"):
         try:
             return pl.read_csv(path, encoding=enc, infer_schema_length=10000)
@@ -105,11 +106,11 @@ def _ensure_columns(df: pl.DataFrame, required_raw: list[str], file_hint: str):
     miss = [c for c in required_raw if c not in df.columns]
     if miss:
         print(f"错误: 文件 '{file_hint}' 缺少必需列: {miss}")
-
         sys.exit(1)
 
 
 def _num_clean(col: str, to_type) -> pl.Expr:
+    # 清洗数值："1.2万"、"10,000"、" 500 " -> 纯数字
     return (
         pl.col(col)
         .cast(pl.Utf8, strict=False)
@@ -127,12 +128,12 @@ def _pick_first_col(df: pl.DataFrame, candidates: list[str]) -> str | None:
 
 
 def _bool01_expr(col: str) -> pl.Expr:
-    truthy = ["1", 1, True, "true", "TRUE", "y", "Y", "yes", "YES", "是", "机构"]
+    truthy = {"1", "true", "y", "yes", "是", "机构", "TRUE", "Y", "YES"}
     return (
         pl.col(col)
-        .fill_null(0)
         .cast(pl.Utf8, strict=False)
-        .map_elements(lambda x: "1" if x in truthy else "0")
+        .fill_null("0")
+        .map_elements(lambda x: 1 if x in truthy else 0)
         .cast(pl.Int8)
     )
 
@@ -141,22 +142,24 @@ def _generate_case_statement(
     tiers: list[dict], column: str, alias: str, extra: str | None = None
 ) -> str:
     tiers = sorted(tiers, key=lambda x: float(x["threshold"]), reverse=True)
-
     parts = []
     for t in tiers:
         cond = f"when {column} >= {t['threshold']}"
+
         if extra:
             cond += f" and {extra}"
+
         parts.append(f"{cond} then {t['reward']}")
     return f"case {' '.join(parts)} else 0 end as {alias}"
 
 
-# ====== 加载数据 ======
+# ====== 数据准备 ======
+
+
 def load_user_info(path: str) -> pl.DataFrame:
     print(f"正在加载用户信息文件: {path}")
     raw = _read_csv_or_exit(path)
     required = list(USER_INFO_COLUMNS_MAP.keys())
-
     _ensure_columns(raw, required, path)
     df = (
         raw.select(required)
@@ -200,12 +203,13 @@ def load_account(path: str) -> pl.DataFrame:
     )
 
 
-def load_company(path: str, price_mode: str) -> pl.DataFrame:
+def load_company(path: str, price_mode: str) -> tuple[pl.DataFrame, int]:
     """
-    公司表用于判断是否机构：
-    - nickname：映射账号
-    - is_institution：1=机构, 0=非机构
-    若文件不存在或列缺失：在 both 模式下默认按非机构处理，并给出提示。
+    返回: (公司表DataFrame, default_org_flag)
+    default_org_flag: 当无法使用公司表时，both 模式下默认是否机构:
+      - 1 = 默认机构（使用内部价）
+      - 0 = 默认非机构（使用外部价）
+
     """
     p = Path(path)
     if not p.exists():
@@ -213,40 +217,43 @@ def load_company(path: str, price_mode: str) -> pl.DataFrame:
             print(
                 f"提示: 未找到公司表 '{path}'，both 模式下将默认所有账号为机构（使用内部价格）。"
             )
-        return pl.DataFrame({"nickname": [], "is_institution": []})
+        return pl.DataFrame({"nickname": [], "is_institution": []}), 1
 
     raw = _read_csv_or_exit(path)
     nick_col = _pick_first_col(raw, COMPANY_NICK_CANDIDATES)
-
     org_col = _pick_first_col(raw, COMPANY_ISORG_CANDIDATES)
+
     if nick_col is None or org_col is None:
         if price_mode == "both":
             print(
-                f"提示: 公司表缺少列，找到的昵称列={nick_col}，机构列={org_col}；将默认非机构。"
+                f"提示: 公司表缺少列（昵称列={nick_col}，机构列={org_col}），both 模式下将默认所有账号为机构（使用内部价格）。"
             )
-        return pl.DataFrame({"nickname": [], "is_institution": []})
+        return pl.DataFrame({"nickname": [], "is_institution": []}), 1
 
-    return (
+    df = (
         raw.select([nick_col, org_col])
         .rename({nick_col: "nickname", org_col: "is_institution"})
         .with_columns(is_institution=_bool01_expr("is_institution"))
-        .with_columns(
-            # nickname 统一成字符串
-            nickname=pl.col("nickname").cast(pl.Utf8, strict=False)
-        )
+        .with_columns(nickname=pl.col("nickname").cast(pl.Utf8, strict=False))
         .unique(subset=["nickname"], keep="any")
     )
+    # 公司表可用时，默认回退设为“非机构=0”
+    return df, 0
 
 
 # ====== 计算 ======
 def calculate(
-    user_df: pl.DataFrame, acc_df: pl.DataFrame, comp_df: pl.DataFrame, price_mode: str
+    user_df: pl.DataFrame,
+    acc_df: pl.DataFrame,
+    comp_df: pl.DataFrame,
+    price_mode: str,
+    default_org_flag: int,
 ) -> pl.DataFrame:
     print("正在计算稿费和奖励...")
     con = duckdb.connect(database=":memory:")
     con.register("user_info_view", user_df)
-    con.register("account_view", acc_df)
 
+    con.register("account_view", acc_df)
     con.register("company_view", comp_df)
 
     base_internal_sql = _generate_case_statement(
@@ -261,39 +268,39 @@ def calculate(
         "base_reward_external",
         extra="ui.row_number = 1",
     )
+
     boom_sql = _generate_case_statement(
         CONFIG["REWARD_RULES"]["amount_of_reward_tiers"],
         "ui.like_number",
         "amount_of_reward",
     )
 
-    # price_mode 选择逻辑：
-    # internal -> 一律内部价；external -> 一律外部价；both -> 机构用内部价，非机构用外部价
     sql = f"""
     with ranked as (
-        select *, row_number() over (partition by nickname order by like_number desc) as row_number
-        from user_info_view
+      select *, row_number() over (partition by nickname order by like_number desc) as row_number
+      from user_info_view
     )
     select
-    ui.submitter, ui.submission_time, ui.nickname, ui.fans, ui.note_url,
-    ui.like_number, ui.collect, ui.comment, ui.row_number,
-    {base_internal_sql},
-    {base_external_sql},
-    case
+      ui.submitter, ui.submission_time, ui.nickname, ui.fans, ui.note_url,
+
+      ui.like_number, ui.collect, ui.comment, ui.row_number,
+      {base_internal_sql},
+      {base_external_sql},
+      case
         when '{price_mode}' = 'internal' then base_reward_internal
         when '{price_mode}' = 'external' then base_reward_external
-        when coalesce(comp.is_institution, 0) = 0 then base_reward_external
-        else base_reward_internal
-    end as base_reward,
-    {boom_sql},
-    case when ui.row_number != 1 then '稿费只结算最高点赞的一条' else '' end as remark,
-    acc.cloud_name, acc.cloud_phone, acc.cloud_bank_number, acc.cloud_id_number
+        when coalesce(comp.is_institution, {default_org_flag}) = 1 then base_reward_internal
+        else base_reward_external
+      end as base_reward,
+      {boom_sql},
+      case when ui.row_number != 1 then '稿费只结算最高点赞的一条' else '' end as remark,
+      acc.cloud_name, acc.cloud_phone, acc.cloud_bank_number, acc.cloud_id_number
     from ranked ui
     left join account_view acc using (nickname)
     left join company_view comp using (nickname)
     order by ui.nickname asc, ui.like_number desc
     """
-    print("执行 SQL 语句:", sql)
+    print(sql)
     out = con.execute(sql).pl().drop(["base_reward_internal", "base_reward_external"])
     con.close()
     return out
@@ -303,7 +310,9 @@ def save_result(df: pl.DataFrame, out_path: str):
     out = Path(out_path)
     try:
         print(f"正在保存结果到: {out}")
+
         df.write_excel(str(out))
+
         print("文件保存成功！")
     except Exception as e:
         alt = out.with_suffix(".csv")
@@ -320,14 +329,12 @@ def main(
     price_mode: str,
 ):
     user_df = load_user_info(user_info_path)
-
     if user_df.is_empty():
         print("没有可计算的数据，程序结束。")
         return
     acc_df = load_account(account_path)
-
-    comp_df = load_company(company_path, price_mode)
-    result = calculate(user_df, acc_df, comp_df, price_mode).rename(
+    comp_df, default_org_flag = load_company(company_path, price_mode)
+    result = calculate(user_df, acc_df, comp_df, price_mode, default_org_flag).rename(
         FINAL_OUTPUT_COLUMNS_MAP
     )
     save_result(result, output_path)
@@ -349,11 +356,12 @@ if __name__ == "__main__":
         default="./company.csv",
         help="公司信息 CSV 路径（含是否机构）",
     )
+
     parser.add_argument(
         "--price_mode",
         choices=["internal", "external", "both"],
         default="both",
-        help="价格模式：internal=全部机构价，external=全部外部价，both=机构用内部价、非机构用外部价",
+        help="价格模式：internal=全部机构价，external=全部外部价，both=机构用内部价、非机构用外部价（公司表缺失时默认全部内部价）",
     )
     parser.add_argument(
         "--output_file",
