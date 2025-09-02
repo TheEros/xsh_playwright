@@ -89,8 +89,8 @@ def normalize_to_wan(cell: str) -> Tuple[Optional[float], List[str]]:
             wan = val / 10000.0
 
     # 异常大值提醒（>100万）
-    if wan > 100:
-        issues.append("数值极大（>100万），请确认")
+    if wan > 10:
+        issues.append("数值极大（>10万），请确认")
 
     return round(wan, 4), issues
 
