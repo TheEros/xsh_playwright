@@ -106,6 +106,7 @@ FINAL_OUTPUT_COLUMNS_MAP = {
 
 # 公司表常见列名（任选其一）
 COMPANY_NICK_CANDIDATES = [
+    "小红书账号（有几个账号就需要填几份登记链接）（必填）",
     "nickname",
     "小红书账号",
     "小红书名称",
@@ -243,10 +244,8 @@ def _generate_case_statement(
     parts = []
     for t in tiers:
         cond = f"when {column} >= {t['threshold']}"
-
         if extra:
             cond += f" and {extra}"
-
         parts.append(f"{cond} then {t['reward']}")
     return f"case {' '.join(parts)} else 0 end as {alias}"
 
@@ -258,9 +257,7 @@ def load_user_info(path: str) -> pl.DataFrame:
     print(f"正在加载用户信息文件: {path}")
     raw = _read_table_or_exit(path)
     required = list(USER_INFO_COLUMNS_MAP.keys())
-
     _ensure_columns(raw, required, path)
-
     df = (
         raw.select(required)
         .rename(USER_INFO_COLUMNS_MAP)
@@ -341,14 +338,18 @@ def load_company(path: str, price_mode: str) -> Tuple[pl.DataFrame, int]:
         return pl.DataFrame({"nickname": [], "is_institution": []}), 1
 
     df = (
-        raw.select([nick_col])
+        raw.filter(
+            pl.col("机构").eq("次元脉冲")
+            if nick_col == "小红书账号（有几个账号就需要填几份登记链接）（必填）"
+            else pl.lit(True)
+        )
+        .select([nick_col])
         .rename({nick_col: "nickname"})
         .with_columns(nickname=pl.col("nickname").cast(pl.Utf8, strict=False))
         .unique(subset=["nickname"], keep="any")
         .with_columns(pl.col(pl.Utf8).str.strip_chars())
         .with_columns(is_institution=pl.lit(1))
     )
-
     # 公司表可用时，默认回退设为“非机构=0”
     return df, 0
 
@@ -469,7 +470,6 @@ def save_result(df: pl.DataFrame, out_path: str) -> None:
             return
         except Exception as e2:  # noqa: BLE001
             alt = out.with_suffix(".csv")
-
             final_df.write_csv(alt)
             print(f"Excel 写入失败（{e2}），已改存为 CSV: {alt}")
 
