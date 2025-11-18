@@ -13,4 +13,5 @@ dependencies = [
   "polars>=1.35.2",
   "requests>=2.32.4",
   "selenium>=4.34.2",
+  "selenium-stealth>=1.0.6",
 ]

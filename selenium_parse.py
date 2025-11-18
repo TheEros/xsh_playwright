@@ -1,14 +1,17 @@
-import time
 import datetime
-import os
-import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import WebDriverException, TimeoutException
-from bs4 import BeautifulSoup
-import re
-import logging
 import json
+import logging
+import os
+import re
+import time
+import random
+
+import pandas as pd
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium_stealth import stealth
+from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.webdriver.chrome.options import Options
 
 # --- 配置区 ---
 # 在这里修改所有设置，无需改动下面的代码
@@ -78,7 +81,7 @@ def read_urls_from_file(filename):
 def setup_driver():
     """配置并初始化Chrome WebDriver。"""
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--log-level=3")
@@ -86,6 +89,15 @@ def setup_driver():
 
     try:
         driver = webdriver.Chrome(options=chrome_options)
+        stealth(
+            driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
         driver.set_window_size(1280, 800)
         return driver
     except WebDriverException as e:
@@ -148,6 +160,12 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
 
         for i, url in enumerate(note_urls):
             logging.info(f"正在处理第 {i + 1}/{len(note_urls)} 个链接: {url}")
+            if (i + 1) % 50 == 0:  # 每处理50个链接
+                sleep_duration = random.uniform(100, 200)
+                logging.warning(
+                    f"已处理 {i + 1} 个链接，进入批处理休眠 {int(sleep_duration)} 秒..."
+                )
+                time.sleep(sleep_duration)
 
             # 初始化笔记和用户信息字段
             note_info = {
@@ -161,7 +179,7 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
 
             try:
                 driver.get(url)
-                time.sleep(3)  # 等待页面渲染
+                time.sleep(random.uniform(2, 5))
 
                 if enable_screenshots:
                     screenshot_path = os.path.join(
