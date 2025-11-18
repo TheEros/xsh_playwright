@@ -160,8 +160,8 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
 
         for i, url in enumerate(note_urls):
             logging.info(f"正在处理第 {i + 1}/{len(note_urls)} 个链接: {url}")
-            if (i + 1) % 50 == 0:  # 每处理50个链接
-                sleep_duration = random.uniform(100, 200)
+            if (i + 1) % 51 == 0:  # 每处理50个链接
+                sleep_duration = random.uniform(60, 120)
                 logging.warning(
                     f"已处理 {i + 1} 个链接，进入批处理休眠 {int(sleep_duration)} 秒..."
                 )
@@ -179,7 +179,7 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
 
             try:
                 driver.get(url)
-                time.sleep(random.uniform(2, 5))
+                time.sleep(random.uniform(2, 4))
 
                 if enable_screenshots:
                     screenshot_path = os.path.join(
