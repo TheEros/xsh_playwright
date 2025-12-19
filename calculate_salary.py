@@ -39,7 +39,6 @@ CONFIG = {
     "REWARD_RULES": {
         # 机构内部价格（示例：请按实际调整）
         "base_reward_tiers_internal": [
-            {"threshold": 10, "reward": 500},
             {"threshold": 5, "reward": 200},
             {"threshold": 1, "reward": 100},
             {"threshold": 0.5, "reward": 50},
@@ -48,7 +47,6 @@ CONFIG = {
         ],
         # 外部价格（示例：请按实际调整）
         "base_reward_tiers_external": [
-            {"threshold": 10, "reward": 400},
             {"threshold": 5, "reward": 100},
             {"threshold": 1, "reward": 50},
             {"threshold": 0.5, "reward": 30},
@@ -74,6 +72,11 @@ USER_INFO_COLUMNS_MAP = {
     "点赞": "like_number",
     "收藏": "collect",
     "评论": "comment",
+    "抖音名称（必填）": "douyin_name",
+    "抖音链接": "douyin_url",
+    "点赞_1": "like_number_1",
+    "收藏_1": "collect_1",
+    "评论_1": "comment_1",
 }
 
 ACCOUNT_COLUMNS_MAP = {
@@ -98,6 +101,11 @@ FINAL_OUTPUT_COLUMNS_MAP = {
     "base_reward": "基础稿费",
     "amount_of_reward": "爆款奖励",
     "remark": "备注",
+    "douyin_name": "抖音名称",
+    "douyin_url": "抖音链接",
+    "like_number_1": "抖音点赞数",
+    "collect_1": "抖音收藏数",
+    "comment_1": "抖音评论数",
     "cloud_name": "云账户姓名",
     "cloud_phone": "云账户电话",
     "cloud_bank_number": "云账户银行卡号",
@@ -256,6 +264,7 @@ def _generate_case_statement(
 def load_user_info(path: str) -> pl.DataFrame:
     print(f"正在加载用户信息文件: {path}")
     raw = _read_table_or_exit(path)
+    print(raw.columns)
     required = list(USER_INFO_COLUMNS_MAP.keys())
     _ensure_columns(raw, required, path)
     df = (
@@ -265,6 +274,7 @@ def load_user_info(path: str) -> pl.DataFrame:
             pl.col("note_url").is_not_null()
             & (pl.col("note_url").cast(pl.Utf8, strict=False).str.len_chars() > 0)
         )
+        .with_row_count("source_order")
         .with_columns(
             like_number=_num_clean("like_number", pl.Int64),
             collect=_num_clean("collect", pl.Int64),
@@ -395,6 +405,7 @@ def calculate(
     select
       ui.submitter, ui.submission_time, ui.nickname, ui.fans, ui.note_url,
       ui.like_number, ui.collect, ui.comment, ui.row_number,
+      ui.source_order,
       coalesce(comp.is_institution, {default_org_flag}) as is_mcn,
       {base_internal_sql},
       {base_external_sql},
@@ -406,18 +417,22 @@ def calculate(
       end as base_reward,
       {boom_sql},
       case when ui.row_number != 1 then '稿费只结算最高点赞的一条' else '' end as remark,
+      ui.douyin_name, ui.douyin_url,ui.like_number_1, ui.collect_1, ui.comment_1,
       acc.cloud_name, acc.cloud_phone, acc.cloud_bank_number, acc.cloud_id_number
     from ranked ui
     left join account_view acc using (nickname)
     left join company_view comp using (nickname)
-    order by ui.nickname asc, ui.like_number desc
+    order by ui.source_order asc
     """
     print(sql)
 
     out = (
         con.execute(sql)
         .pl()
-        .drop(["base_reward_internal", "base_reward_external"], strict=False)
+        .drop(
+            ["base_reward_internal", "base_reward_external", "source_order"],
+            strict=False,
+        )
     )
     con.close()
 

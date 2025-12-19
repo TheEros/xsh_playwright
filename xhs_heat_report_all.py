@@ -122,6 +122,28 @@ if __name__ == "__main__":
         "sec_poison_id": "0b5120af-5fc2-4411-9ffb-4a8e3bee50b6",
         "loadts": "1765953996031",
     }
+    # cookies = {
+    #     "abRequestId": "68c22f1e-0b84-5747-ab8d-561388a02aaf",
+    #     "a1": "19777849453hjdlpofzpcrg02hhxzgf11dg1g11li50000112937",
+    #     "webId": "6acae39285e8fb70dd85223208d3e28d",
+    #     "web_session": "030037af7cebd047f401777b292f4a908cbc24",
+    #     "gid": "yjWY8jySSiyqyjWWWY4j4fyy2qxVf1UliuUSk13Fk8Jxxy28Cukiyk888yyJjqW8q4Dij2yJ",
+    #     "customerClientId": "780284401245141",
+    #     "x-user-id-ark.xiaohongshu.com": "59ebefa3e8ac2b2171a39d89",
+    #     "x-user-id-creator.xiaohongshu.com": "618f62ac000000001000d08b",
+    #     "access-token-ark.xiaohongshu.com": "customer.ark.AT-68c517584284453826363397oa9lg7iui51k6wjq",
+    #     "beaker.session.id": "fb99386818a506ceea46be2abef3cbfcc24667b7gAJ9cQAoWAsAAABhcmstbGlhcy1pZHEBWBgAAAA2N2JmMTFhNDhjMjViMzAwMTU0ZTM3MTRxAlgOAAAAcmEtdXNlci1pZC1hcmtxA1gYAAAANjdiZjExYTQwNGYwMDAwMDAwMDAwMDAycQRYDgAAAF9jcmVhdGlvbl90aW1lcQVHQdpQMqH2dslYEQAAAHJhLWF1dGgtdG9rZW4tYXJrcQZYQQAAAGVlNWFlMWEyMWM1NDRlZWFhYThlYTNjMWVhZjMzZjcwLTkzYTk5NWM5NzA4OTRjOWNhZWY3MTQwMjljODU5YjE3cQdYAwAAAF9pZHEIWCAAAABmMzBiYTM2ZDQzZTQ0ZjJiOWRlYWNmNTg0OGYyZjk2MHEJWA4AAABfYWNjZXNzZWRfdGltZXEKR0HaUDKh9nbJdS4=",
+    #     "acw_tc": "0a422b7a17660382657197806ee3f3044b9e7c025f0c8b42582a2f4f1122c6",
+    #     "xsecappid": "ratlin",
+    #     "websectiga": "cf46039d1971c7b9a650d87269f31ac8fe3bf71d61ebf9d9a0a87efb414b816c",
+    #     "sec_poison_id": "97f9d940-31a8-4368-846b-2570c5bff7e6",
+    #     "customer-sso-sid": "68c517585080865316962312hmahbcvy59d7x51y",
+    #     "x-user-id-pgy.xiaohongshu.com": "62bd9327000000001b0257a1",
+    #     "solar.beaker.session.id": "AT-68c517585080865316978690hjawvsyp9agpvgnx",
+    #     "access-token-pgy.xiaohongshu.com": "customer.pgy.AT-68c517585080865316978690hjawvsyp9agpvgnx",
+    #     "access-token-pgy.beta.xiaohongshu.com": "customer.pgy.AT-68c517585080865316978690hjawvsyp9agpvgnx",
+    #     "loadts": "1766039262522",
+    # }
 
     headers = {
         "accept": "application/json, text/plain, */*",
@@ -154,8 +176,8 @@ if __name__ == "__main__":
                 "column": "",
             },
         ],
-        "heatStartTimeBegin": "2025-11-04",
-        "heatStartTimeEnd": "2025-12-17",
+        "heatStartTimeBegin": "2025-11-03",
+        "heatStartTimeEnd": "2025-12-18",
         "noteTitle": "",
     }
     url = "https://pgy.xiaohongshu.com/api/solar/heat/data/report"

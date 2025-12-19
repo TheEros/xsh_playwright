@@ -21,7 +21,7 @@ from typing import Tuple, Optional, List
 
 # 你的原始数据（顺序即为输出顺序）
 raw_values = (
-    pl.read_excel("./user_info.xslx").select("粉丝量（必填）").to_series().to_list()
+    pl.read_excel("./user_info.xlsx").select("粉丝量（必填）").to_series().to_list()
 )
 
 
