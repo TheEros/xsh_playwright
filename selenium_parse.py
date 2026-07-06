@@ -17,7 +17,7 @@ from selenium.webdriver.chrome.options import Options
 # 在这里修改所有设置，无需改动下面的代码
 CONFIG = {
     "enable_user_info": False,  # True: 开启主页信息爬取, False: 关闭
-    "enable_screenshots": False,  # True: 开启截图, False: 关闭截图
+    "enable_screenshots": True,  # True: 开启截图, False: 关闭截图
     "urls_filename": "urls.txt",  # 存储URL列表的文件
     "cookies_filename": "cookies.txt",  # 存储Cookie的文件
     "output_filename_prefix": "xiaohongshu_notes",  # Excel文件名前缀
@@ -132,7 +132,29 @@ def load_cookies(driver, cookies_file):
         logging.error(f"加载或解析Cookie时发生错误: {e}")
         return False
 
+def parse_initial_state(page_source: str) -> dict:
+    """
+    解析小红书页面中的 window.__INITIAL_STATE__
+    """
+    m = re.search(
+        r"<script>\s*window\.__INITIAL_STATE__\s*=\s*(.*?)</script>",
+        page_source,
+        re.S,
+    )
+    if not m:
+        return {}
 
+    raw = m.group(1).strip()
+
+    # 小红书里面可能有 undefined，标准 json.loads 解析不了
+    raw = re.sub(r":undefined(?=[,}])", ":null", raw)
+    raw = re.sub(r"\bundefined\b", "null", raw)
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        logging.warning(f"__INITIAL_STATE__ 解析失败: {e}")
+        return {}
 def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs):
     """
     处理小红书笔记URL列表，抓取数据并根据配置进行截图和用户信息抓取。
@@ -192,26 +214,55 @@ def process_notes(note_urls, cookies_filename, output_filename_prefix, **kwargs)
                 page_source = driver.page_source
                 soup = BeautifulSoup(page_source, "html.parser")
 
-                if soup.find("meta", attrs={"name": "og:title"}) is None:
-                    logging.warning(
-                        f"无法访问或解析笔记: {url}。可能需要验证或笔记已删除。"
-                    )
-                    note_info["标题"] = "无法访问或解析"
-                    all_notes_data.append({**note_info, **user_info})
-                    continue
+                note_info = {
+                    "标题": "",
+                    "正文": "",
+                    "作者": "",
+                    "点赞数": 0,
+                    "收藏数": 0,
+                    "评论数": 0,
+                    "分享数": 0,
+                    "发布时间": "",
+                    "IP属地": "",
+                    "笔记ID": "",
+                }
 
-                # 1. 抓取笔记基础信息
-                title_tag = soup.find("meta", attrs={"name": "og:title"})
-                note_info["标题"] = title_tag.get("content", "无标题")
-                note_info["点赞数"] = soup.find(
-                    "meta", attrs={"name": "og:xhs:note_like"}
-                ).get("content", 0)
-                note_info["收藏数"] = soup.find(
-                    "meta", attrs={"name": "og:xhs:note_collect"}
-                ).get("content", 0)
-                note_info["评论数"] = soup.find(
-                    "meta", attrs={"name": "og:xhs:note_comment"}
-                ).get("content", 0)
+                # 1. 优先解析 window.__INITIAL_STATE__
+                state = parse_initial_state(page_source)
+
+                note_store = state.get("note", {})
+                note_detail_map = note_store.get("noteDetailMap", {})
+
+                if note_detail_map:
+                    current_note_id = note_store.get("currentNoteId") or note_store.get("firstNoteId")
+
+                    if current_note_id and current_note_id in note_detail_map:
+                        detail = note_detail_map[current_note_id]
+                    else:
+                        detail = next(iter(note_detail_map.values()))
+
+                    note = detail.get("note", {})
+                    interact = note.get("interactInfo", {})
+                    user = note.get("user", {})
+
+                    desc = note.get("desc", "") or ""
+                    title = note.get("title", "") or ""
+
+                    # 很多小红书视频笔记 title 为空，标题可用正文第一行兜底
+                    fallback_title = desc.strip().split("\n")[0] if desc.strip() else "无标题"
+
+                    note_info.update({
+                        "笔记ID": note.get("noteId", current_note_id),
+                        "标题": title or fallback_title,
+                        "正文": desc,
+                        "作者": user.get("nickname", ""),
+                        "点赞数": interact.get("likedCount", 0),
+                        "收藏数": interact.get("collectedCount", 0),
+                        "评论数": interact.get("commentCount", 0),
+                        "分享数": interact.get("shareCount", 0),
+                        "发布时间": note.get("time", ""),
+                        "IP属地": note.get("ipLocation", ""),
+                    })
                 logging.info(
                     f"标题: {note_info['标题']}, 点赞: {note_info['点赞数']}, 收藏: {note_info['收藏数']}, 评论: {note_info['评论数']}"
                 )
